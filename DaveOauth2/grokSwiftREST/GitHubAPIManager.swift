@@ -104,6 +104,17 @@ class GitHubAPIManager {
     
        debugPrint(starredGistsREquest)
   }
+    
+    
+  // Create a Not Logged In error if Authorization fails.
+  private func handleUnauthorizedResponse() -> NSError {
+       self.OAuthToken = nil // insure OAuthToken is cleared.
+       let lostOAuthError = NSError(domain: NSURLErrorDomain,
+           code: NSURLErrorUserAuthenticationRequired,
+           userInfo: [NSLocalizedDescriptionKey: "Not Logged In",
+               NSLocalizedRecoverySuggestionErrorKey: "Please re-enter your GitHub credentials"])
+       return lostOAuthError
+  }
 
 
   func printPublicGists() -> Void {
@@ -222,6 +233,8 @@ class GitHubAPIManager {
                     
             }
     }
+    
+  // MARK:  get gist functions.
   
   func getGists(urlRequest: URLRequestConvertible, completionHandler: (Result<[Gist], NSError>, String?) -> Void) {
     alamofireManager.request(urlRequest)
@@ -284,6 +297,72 @@ class GitHubAPIManager {
                 getGists(GistRouter.GetMine(), completionHandler: completionHandler)
             }
     }
+    
+    // MARK: Starring / Unstarring / Star status
+    
+    func isGistStarred(gistId: String, completionHandler: Result<Bool, NSError> -> Void) {
+        // GET /gists/:id/star
+        alamofireManager.request(GistRouter.IsStarred(gistId))
+            .validate(statusCode: [204])
+            .isUnauthorized { response in
+                if let unauthorized = response.result.value where unauthorized == true
+                {
+                    let lostOAuthError = self.handleUnauthorizedResponse()
+                    completionHandler(.Failure(lostOAuthError))
+                    return // don't bother with .responseArray, we didn't get any data
+                }
+            }
+            .response { (request, response, data, error) in
+                // 204 if starred, 404 if not
+                if let error = error {
+                    print(error)
+                    if response?.statusCode == 404 {
+                        completionHandler(.Success(false))
+                        return
+                    }
+                    completionHandler(.Failure(error))
+                    return
+                }
+                completionHandler(.Success(true))
+        }
+    }
+    
+    func starGist(gistId: String, completionHandler: (NSError?) -> Void) {
+        alamofireManager.request(GistRouter.Star(gistId))
+            .isUnauthorized { response in
+                if let unauthorized = response.result.value where unauthorized == true {
+                    let lostOAuthError = self.handleUnauthorizedResponse()
+                    completionHandler(lostOAuthError)
+                    return // don't bother with .responseArray, we didn't get any data
+                }
+            }
+            .response { (request, response, data, error) in
+                if let error = error {
+                    print(error)
+                    return
+                }
+                completionHandler(error)
+        }
+    }
+    
+    func unstarGist(gistId: String, completionHandler: (NSError?) -> Void) {
+        alamofireManager.request(GistRouter.Unstar(gistId))
+            .isUnauthorized { response in
+                if let unauthorized = response.result.value where unauthorized == true {
+                    let lostOAuthError = self.handleUnauthorizedResponse()
+                    completionHandler(lostOAuthError)
+                    return // don't bother with .responseArray, we didn't get any data
+                }
+            }
+            .response { (request, response, data, error) in
+                if let error = error {
+                    print(error)
+                    return
+                }
+                completionHandler(error)
+        }
+    }
+
     
     func checkUnauthorized(urlResponse: NSHTTPURLResponse) -> (NSError?)
     {
